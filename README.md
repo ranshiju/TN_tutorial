@@ -6,10 +6,10 @@ The aim of the course is to explain the mathematic foundation of TN and its conn
 
 As the course is mainly for Chinese students, many comments are in Chinese. I haven’t translated them all to English, but will if necessary.
 
-Best regards,
-Shi-Ju Ran
-sjran@cnu.edu.cn
-Associate professor
-Department of Physics
-Capital Normal University
-Beijing, 100048 China
+Best regards, 
+Shi-Ju Ran 
+sjran@cnu.edu.cn 
+Associate professor 
+Department of Physics 
+Capital Normal University 
+Beijing, 100048 China 
