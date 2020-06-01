@@ -267,6 +267,57 @@ def ED_ground_state(hamilt, pos, v0=None, tau=1e-4):
     return lm, v1
 
 
+def tt_product(tensors):
+    """
+    Tensor-train product
+    :param tensors: tensors in the TT form
+    :return: tensor
+    """
+    x = np.tensordot(tensors[0], tensors[1], [[tensors[0].ndim-1], [0]])
+    for n in range(len(tensors)-2):
+        x = np.tensordot(x, tensors[n+2], [[x.ndim - 1], [0]])
+    return x
+
+
+def ttd(x, chi=None):
+    """
+    :param x: tensor to be decomposed
+    :param chi: dimension cut-off. Use QR decomposition when chi=None;
+                use SVD but don't truncate when chi=-1
+    :return tensors: tensors in the TT form
+    :return lm: singular values in each decomposition (calculated when chi is not None)
+    """
+    dims = x.shape
+    ndim = x.ndim
+    dimL = 1
+    tensors = list()
+    lm = list()
+    for n in range(ndim-1):
+        if chi is None:  # No truncation
+            q, x = np.linalg.qr(x.reshape(dimL*dims[n], -1))
+            dimL1 = x.shape[0]
+        else:
+            q, s, v = np.linalg.svd(x.reshape(dimL*dims[n], -1))
+            if chi > 0:
+                dc = min(chi, s.size)
+            else:
+                dc = s.size
+            q = q[:, :dc]
+            s = s[:dc]
+            lm.append(s)
+            x = np.diag(s).dot(v[:dc, :])
+            dimL1 = dc
+        tensors.append(q.reshape(dimL, dims[n], dimL1))
+        dimL = dimL1
+    tensors.append(x.reshape(dimL, dims[-1]))
+    tensors[0] = tensors[0][0, :, :]
+    return tensors, lm
+
+
+# x = np.random.randn(10, 10, 10)
+# ts = ttd(x, chi=3)[0]
+# x1 = tt_product(ts)
+# print(np.linalg.norm(x-x1) / np.linalg.norm(x))
 
 
 
