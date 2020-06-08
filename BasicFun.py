@@ -314,10 +314,46 @@ def ttd(x, chi=None):
     return tensors, lm
 
 
-# x = np.random.randn(10, 10, 10)
-# ts = ttd(x, chi=3)[0]
-# x1 = tt_product(ts)
-# print(np.linalg.norm(x-x1) / np.linalg.norm(x))
+def entanglement_entropy(lm, tol=1e-20):
+    lm /= np.linalg.norm(lm)
+    lm = lm[lm > tol]
+    ent = -2 * (lm ** 2).T.dot(np.log(lm))
+    return ent
 
+
+def eigs_AD(mat, lr=1e-2, v0=None, it_time=500, tol=1e-15):
+    """
+    :param mat: 带分解矩阵
+    :param lr: 学习率
+    :param v0: 初始向量
+    :param it_time: 最大迭代次数
+    :param tol: 收敛阈值
+    :return lm: 最大本征值
+    :return v0: 最大本征向量
+    """
+    # 初始化及预处理v0
+    if v0 is None:
+        v0 = tc.randn(mat.shape[0], )
+    v0 /= v0.norm()
+    v0.requires_grad = True
+    # 建立优化器，这里使用Adam优化器，可自动动态控制学习率
+    optimizer = tc.optim.Adam([v0], lr=lr)
+    v1 = copy.deepcopy(v0.data)
+    # 进入主循环
+    for t in range(it_time):
+        # 计算损失函数
+        f = -v0.matmul(mat).matmul(v0) / v0.matmul(v0)
+        f.backward()  # 进行反向传播
+        optimizer.step()  # 更新参数
+        optimizer.zero_grad()  # 清空梯度
+        conv = tc.norm(v0.data - v1) / v1.numel()  # 计算收敛性
+        if conv < tol:
+            break
+        else:
+            v1 = copy.deepcopy(v0.data)
+    with tc.no_grad():
+        v0 = v0 / tc.norm(v0)  # 归一化，计算本征向量
+        lm = v0.matmul(mat).max() / v0.max()  # 计算本征值
+    return lm, v0
 
 

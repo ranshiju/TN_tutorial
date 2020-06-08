@@ -2,7 +2,6 @@ import numpy as np
 import torch as tc
 
 
-x = ['a', 'c']
-xx = ''.join(x)
-print(xx)
-print(len(xx))
+x = tc.rand(4, )
+y = tc.randn(4, 4)
+print(x.matmul(y))
