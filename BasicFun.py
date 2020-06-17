@@ -244,7 +244,7 @@ def ED_ground_state(hamilt, pos, v0=None, tau=1e-4):
     for x in pos:
         n_site = max([n_site] + list(x))
     n_site += 1
-    # 自动获取格点自由度
+    # 自动获取格点的维数
     d = hamilt[0].shape[0]
     dims = [d] * n_site
     dim_tot = np.prod(dims)
@@ -324,7 +324,7 @@ def entanglement_entropy(lm, tol=1e-20):
 def eigs_AD(mat, lr=1e-2, v0=None, it_time=500, tol=1e-15):
     """
     :param mat: 带分解矩阵
-    :param lr: 学习率
+    :param lr: 初始学习率
     :param v0: 初始向量
     :param it_time: 最大迭代次数
     :param tol: 收敛阈值

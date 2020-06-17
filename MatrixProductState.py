@@ -1,16 +1,22 @@
 import numpy as np
 import copy
+import torch as tc
 import BasicFun as bf
+import matplotlib.pyplot as plt
 
 
 class OBCMPS:
     """
-    重要成员函数列表：
+    ！！！重要成员函数列表！！！
     - initialize_tensors：随机初始化张量，或输入指定张量
     - full_tensor：收缩所有辅助指标，返回MPS代表的大张量
     - c_orthogonalization：指定正交中心，对MPS进行中心正交化
     - move_center_one_step：将MPS正交中心向左或向右移动一格（MPS必须已被正交化）
+    - evolve_and_truncate_two_body_nn_gate：作用近邻二体演化算符并裁剪
+    # 观测相关函数
     - calculate_bipartite_entanglement: 利用中心正交形式，计算纠缠谱
+    - calculate_one_body_RDM: 计算单体约化密度矩阵
+    - calculate_one_body_observable：计算单体算符的观测量
     """
 
     def __init__(self, d, chi, length):
@@ -32,6 +38,8 @@ class OBCMPS:
         self.pd = list()  # physical bond dimensions
         self.vd = list()  # virtual bond dimensions
         self.center = -1  # 正交中心（当c为负数时，MPS非中心正交）
+        self.device = None
+        self.dtype = None
         self.initialize_tensors()
 
     def initialize_tensors(self, tensors=None):
@@ -49,6 +57,19 @@ class OBCMPS:
         pd = max(self.pd)
         vd = max(self.vd)
         self.tensors = self.tensors[:self.length, :vd, :pd, :vd]
+
+    def toTensor(self, device, dtype=None, requires_grad=False):
+        if type(self.tensors) is not tc.Tensor:
+            self.tensors = tc.from_numpy(self.tensors).to(device)
+            if dtype is not None:
+                self.tensors = self.tensors.type(dtype)
+            self.device = self.tensors.device
+            self.dtype = self.tensors.dtype
+        self.tensors.requires_grad = requires_grad
+
+    def toArray(self):
+        if type(self.tensors) is not np.ndarray:
+            self.tensors = self.tensors.data.to('cpu').numpy()
 
     def full_tensor(self):
         tensor = self.get_tensor(0, True)
@@ -80,12 +101,12 @@ class OBCMPS:
         tensor = self.get_tensor(nt, False)
         tensor = tensor.reshape(self.vd[nt]*self.pd[nt], self.vd[nt+1])
         if way.lower() == 'svd':
-            u, lm, v = np.linalg.svd(tensor)
+            u, lm, v = np.linalg.svd(tensor, full_matrices=False)
             if if_trun:
                 u = u[:, :dc]
-                r = np.diag(lm[:dc]).dot(v[:, :dc].T)
+                r = np.diag(lm[:dc]).dot(v[:dc, :])
             else:
-                r = np.diag(lm).dot(v.T)
+                r = np.diag(lm).dot(v)
         else:
             u, r = np.linalg.qr(tensor)
             lm = None
@@ -110,12 +131,12 @@ class OBCMPS:
         tensor = self.get_tensor(nt, False)
         tensor = tensor.reshape(self.vd[nt], self.pd[nt]*self.vd[nt+1]).T
         if way.lower() == 'svd':
-            u, lm, v = np.linalg.svd(tensor)
+            u, lm, v = np.linalg.svd(tensor, full_matrices=False)
             if if_trun:
                 u = u[:, :dc]
-                r = np.diag(lm[:dc]).dot(v[:, :dc].T)
+                r = np.diag(lm[:dc]).dot(v[:dc, :])
             else:
-                r = np.diag(lm).dot(v.T)
+                r = np.diag(lm).dot(v)
         else:
             u, r = np.linalg.qr(tensor)
             lm = None
@@ -126,7 +147,7 @@ class OBCMPS:
         tensor_ = self.get_tensor(nt-1, False)
         tensor_ = np.tensordot(tensor_, r, [[2], [1]])
         self.update_tensor(nt-1, tensor_)
-        self.vd[nt - 1] = r.shape[0]
+        self.vd[nt] = r.shape[0]
         return lm
 
     def orthogonalize_n1_n2(self, n1, n2, way, dc, normalize):
@@ -137,7 +158,7 @@ class OBCMPS:
             for nt in range(n1, n2, -1):
                 self.orthogonalize_right2left(nt, way, dc, normalize)
 
-    def c_orthogonalization(self, c, way, dc, normalize):
+    def center_orthogonalization(self, c, way, dc, normalize):
         if self.center < -0.5:
             self.orthogonalize_n1_n2(0, c, way, dc, normalize)
             self.orthogonalize_n1_n2(self.length - 1, c, way, dc, normalize)
@@ -180,22 +201,22 @@ class OBCMPS:
         :return:
         """
         if self.center <= nt:
-            self.c_orthogonalization(nt, 'qr', -1, True)
+            self.center_orthogonalization(nt, 'qr', -1, True)
         else:
-            self.c_orthogonalization(nt+1, 'qr', -1, True)
+            self.center_orthogonalization(nt + 1, 'qr', -1, True)
         tensor1 = self.get_tensor(nt)
         tensor2 = self.get_tensor(nt+1)
         tensor = np.einsum('iba,acj,klbc->iklj', tensor1, tensor2, gate)
         s = tensor.shape
         u, lm, v = np.linalg.svd(tensor.reshape(s[0]*s[1], -1))
         chi = min(self.chi, lm.size)
-        if n_center is None or n_center == nt:
+        if (n_center is None) or (n_center == nt):
             u = u[:, :chi].dot(np.diag(lm[:chi])).reshape(s[0], s[1], chi)
-            v = v[:, :chi].T.reshape(chi, s[2], s[3])
+            v = v[:chi, :].reshape(chi, s[2], s[3])
             self.center = nt
         else:
             u = u[:, :chi].reshape(s[0], s[1], chi)
-            v = v[:, :chi].dot(np.diag(lm[:chi])).reshape(s[2], s[3], chi).transpose(2, 0, 1)
+            v = np.diag(lm[:chi]).dot(v[:chi, :]).reshape(chi, s[2], s[3])
             self.center = nt+1
         self.update_tensor(nt, u)
         self.update_tensor(nt+1, v)
@@ -205,12 +226,12 @@ class OBCMPS:
         # 从第nt个张量右边断开，计算纠缠
         # 计算过程中，会对MPS进行规范变换，且会自动进行归一化
         if self.center <= nt:
-            self.c_orthogonalization(nt, 'qr', dc=-1, normalize=True)
+            self.center_orthogonalization(nt, 'qr', dc=-1, normalize=True)
             tensor = self.get_tensor(nt, True)
             lm = np.linalg.svd(tensor.reshape(
                 -1, tensor.shape[2]), compute_uv=False)
         else:
-            self.c_orthogonalization(nt + 1, 'qr', dc=-1, normalize=True)
+            self.center_orthogonalization(nt + 1, 'qr', dc=-1, normalize=True)
             tensor = self.get_tensor(nt + 1, True)
             lm = np.linalg.svd(tensor.reshape(
                 tensor.shape[0], -1), compute_uv=False)
@@ -257,4 +278,55 @@ class OBCMPS:
     def calculate_one_body_observable(self, nt, op):
         rho = self.calculate_one_body_RDM(nt)
         return np.trace(rho.dot(op))
+
+    def mps_log_norm(self, normalize_mps=False):
+        vecs = [None]
+        v = tc.einsum('asb,asd->bd',
+                      self.tensors[0, :self.vd[0], :self.pd[0], :self.vd[1]],
+                      self.tensors[0, :self.vd[0], :self.pd[0], :self.vd[1]])
+        norm = tc.norm(v)
+        v = v / norm
+        vecs.append(v)
+        if normalize_mps:
+            self.tensors[0, :self.vd[0], :self.pd[0], :self.vd[1]] = \
+                self.tensors[0, :self.vd[0], :self.pd[0], :self.vd[1]] / tc.sqrt(norm)
+        norm = tc.log(norm)
+        for n in range(1, self.length):
+            if n < self.length-1:
+                v = tc.einsum('ac,asb,csd->bd', v,
+                              self.tensors[n, :self.vd[n], :self.pd[n], :self.vd[n+1]],
+                              self.tensors[n, :self.vd[n], :self.pd[n], :self.vd[n+1]])
+            else:
+                v = tc.einsum('ac,asb,csd->bd', v,
+                              self.tensors[n, :self.vd[n], :self.pd[n], :self.vd[n + 1]],
+                              self.tensors[n, :self.vd[n], :self.pd[n], :self.vd[n + 1]])
+            _norm = tc.norm(v)
+            v = v / _norm
+            vecs.append(v)
+            norm = norm + tc.log(_norm)
+            if normalize_mps:
+                self.tensors[n, :self.vd[n], :self.pd[n], :self.vd[n+1]] = \
+                    self.tensors[n, :self.vd[n], :self.pd[n], :self.vd[n+1]] / tc.sqrt(_norm)
+        return norm / self.length, vecs
+
+    def log_fidelity(self, tensors, pd, vd):
+        v = tc.einsum('asb,asd->bd',
+                      self.tensors[0, :self.vd[0], :self.pd[0], :self.vd[1]],
+                      tensors[0, :vd[0], :pd[0], :vd[1]])
+        norm = tc.norm(v)
+        v = v / norm
+        norm = tc.log(norm)
+        for n in range(1, self.length):
+            if n < self.length - 1:
+                v = tc.einsum('ac,asb,csd->bd', v,
+                              self.tensors[n, :self.vd[n], :self.pd[n], :self.vd[n + 1]],
+                              tensors[n, :vd[n], :pd[n], :vd[n + 1]])
+            else:
+                v = tc.einsum('ac,asb,csd->bd', v,
+                              self.tensors[n, :self.vd[n], :self.pd[n], :self.vd[n + 1]],
+                              tensors[n, :vd[n], :pd[n], :vd[n + 1]])
+            _norm = tc.norm(v)
+            v = v / _norm
+            norm = norm + tc.log(_norm)
+        return norm / self.length
 
