@@ -230,7 +230,7 @@ def ED_ground_state(hamilt, pos, v0=None, tau=1e-4):
             for nn in range(len(p)):
                 ind_h.append(ind_v.index(p[nn]))
             ind_h1 = convert_nums_to_abc(ind_h)
-            ind_h2 = convert_nums_to_abc(list(range(len(p))), n0=len(p))
+            ind_h2 = convert_nums_to_abc(list(range(len(p))), n0=len(ind_v))
             ind_f_str = list(copy.deepcopy(ind_v_str))
             for nn, _ind in enumerate(ind_h):
                 ind_f_str[_ind] = ind_h2[nn]
