@@ -198,11 +198,11 @@ def heisenberg_hamilt(j, h):
     return H
 
 
-def ED_ground_state(hamilt, pos, v0=None, tau=1e-4):
+def ED_ground_state(hamilt, pos, v0=None, k=1, tau=1e-4):
     """
     每个局域哈密顿量的指标顺序满足: (bra0, bra1, ..., ket0, ket1, ...)
     例：求单个三角形上定义的反铁磁海森堡模型基态：
-    H2 = heisenberg_hamilt([1, 1, 1], [0, 0, 0])
+    H2 = hamiltonian_heisenberg('half', 1, 1, 1, 0, 0, 0, 0)
     e0, gs = ED_ground_state([H2.reshape(2, 2, 2, 2)]*3, [[0, 1], [1, 2], [0, 2]])
     print(e0)
 
@@ -217,7 +217,7 @@ def ED_ground_state(hamilt, pos, v0=None, tau=1e-4):
 
     def convert_nums_to_abc(nums, n0=0):
         s = ''
-        n0 += 97
+        n0 = n0 + 97
         for m in nums:
             s += chr(m + n0)
         return s
@@ -225,18 +225,34 @@ def ED_ground_state(hamilt, pos, v0=None, tau=1e-4):
     def one_map(v, hs, pos_hs, tau_shift, v_dims, ind_v, ind_v_str):
         v = v.reshape(v_dims)
         _v = copy.deepcopy(v)
-        for n, p in enumerate(pos_hs):
-            ind_h = list()
-            for nn in range(len(p)):
-                ind_h.append(ind_v.index(p[nn]))
-            ind_h1 = convert_nums_to_abc(ind_h)
-            ind_h2 = convert_nums_to_abc(list(range(len(p))), n0=len(ind_v))
+        for n, pos_now in enumerate(pos_hs):
+            ind_contract = list()
+            for nn in range(len(pos_now)):
+                ind_contract.append(ind_v.index(pos_now[nn]))
+            ind_h1 = convert_nums_to_abc(ind_contract)
+            ind_h2 = convert_nums_to_abc(list(range(len(pos_now))), n0=len(ind_v))
             ind_f_str = list(copy.deepcopy(ind_v_str))
-            for nn, _ind in enumerate(ind_h):
+            for nn, _ind in enumerate(ind_contract):
                 ind_f_str[_ind] = ind_h2[nn]
             ind_f_str = ''.join(ind_f_str)
             eq = ind_v_str + ',' + ind_h1 + ind_h2 + '->' + ind_f_str
             _v = _v - tau_shift * np.einsum(eq, v, hs[n])
+        return _v.reshape(-1, )
+
+    def one_map_tensordot(v, hs, pos_hs, tau_shift, v_dims, ind_v):
+        v = v.reshape(v_dims)
+        _v = copy.deepcopy(v)
+        for n, pos_now in enumerate(pos_hs):
+            ind_contract = list()
+            ind_new = copy.deepcopy(ind_v)
+            for nn in range(len(pos_now)):
+                ind_contract.append(ind_v.index(pos_now[nn]))
+                ind_new.remove(pos_now[nn])
+            ind_new += pos_now
+            ind_permute = list(np.argsort(ind_new))
+            _v = _v - tau_shift * np.tensordot(
+                v, hs[n], [ind_contract, list(range(len(
+                    pos_now)))]).transpose(ind_permute)
         return _v.reshape(-1, )
 
     # 自动获取总格点数
@@ -257,11 +273,18 @@ def ED_ground_state(hamilt, pos, v0=None, tau=1e-4):
     v0 /= np.linalg.norm(v0)
     # 初始化指标顺序
     ind = list(range(n_site))
-    ind_str = convert_nums_to_abc(ind)
+    # ind_str = convert_nums_to_abc(ind)
     # 定义等效线性映射：I - tau*H
-    h_effect = LinearOp((dim_tot, dim_tot), lambda vg: one_map(
-        vg, hamilt, pos, tau, dims, ind, ind_str))
-    lm, v1 = eigsh(h_effect, k=1, which='LM', v0=v0)
+    # if len(dims) < 23:
+    #     h_effect = LinearOp((dim_tot, dim_tot), lambda vg: one_map(
+    #         vg, hamilt, pos, tau, dims, ind, ind_str))
+    # else:
+    #     pass
+    # h_effect = LinearOp((dim_tot, dim_tot), lambda vg: one_map(
+    #                     vg, hamilt, pos, tau, dims, ind, ind_str))
+    h_effect = LinearOp((dim_tot, dim_tot), lambda vg: one_map_tensordot(
+                        vg, hamilt, pos, tau, dims, ind))
+    lm, v1 = eigsh(h_effect, k=k, which='LM', v0=v0)
     # 平移本征值
     lm = (1 - lm) / tau
     return lm, v1
