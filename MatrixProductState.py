@@ -75,7 +75,7 @@ class OBCMPS:
         tensor = self.get_tensor(0, True)
         for n in range(1, self.length):
             tensor_ = self.get_tensor(n, True)
-            tensor = np.tensordot[tensor, tensor_, [[-1], [0]]]
+            tensor = np.tensordot(tensor, tensor_, [[-1], [0]])
         return np.squeeze(tensor)
 
     def get_tensor(self, nt, if_copy=True):
